@@ -1,0 +1,82 @@
+version: "2"
+services:
+  db:
+    image: mysql:5.7
+    environment:
+      MYSQL_USER: 'contenta'
+      MYSQL_PASSWORD: 'contenta'
+      MYSQL_DATABASE: 'contenta'
+      MYSQL_ROOT_PASSWORD: 'root'
+      MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+    restart: on-failure
+    volumes_from:
+      - dbfiles
+    volumes:
+      - ./assets/mysql:/etc/mysql/conf.d
+      - ./logs/mysql:/var/log/mysql/
+
+  dbfiles:
+    image: busybox
+    volumes:
+      - /var/lib/mysql
+
+  pma:
+    image: phpmyadmin/phpmyadmin
+    links:
+      - db
+    environment:
+      PHP_UPLOAD_MAX_FILESIZE: 1G
+      PHP_POST_MAX_SIZE: 1G
+      UPLOAD_SIZE: 1G
+      PHP_MAX_INPUT_VARS: 1G
+    labels:
+      - "traefik.frontend.rule=Host:contenta-db.localhost"
+      - "traefik.docker.network"
+
+  webfiles:
+    image: busybox
+    volumes:
+      - ./contenta/:/var/www/contenta
+
+  webserver:
+    build:
+      context: ./contenta_docker
+    dns:
+      - 8.8.8.8
+    ports:
+      - 3000:3000
+      - 3001:3001
+    volumes:
+      - ./logs/php:/var/www/contenta/logs
+    volumes_from:
+      - webfiles
+    links:
+      - db
+    restart: on-failure
+    labels:
+      - "traefik.port=80"
+      - "traefik.docker.network"
+      - "traefik.backend=webserver"
+      - "traefik.frontend.rule=Host:contenta.localhost"
+      - "traefik.frontend.entryPoints=http,ws,https,wss"
+      - 'traefik.websocket.protocol=ws'
+      - 'traefik.websocket.port=3000'
+      - 'traefik.websocket.frontend.entryPoints=ws,wss'
+
+  swagger:
+    image: swaggerapi/swagger-editor
+    environment:
+      API_URL: "http://contenta.localhost/openapi/entities?_format=json"
+    restart: on-failure
+    links:
+      - webserver
+    labels:
+      - "traefik.port=8080"
+      - "traefik.backend=swagger"
+      - "traefik.frontend.rule=Host:contenta-swagger.localhost"
+      - "traefik.docker.network"
+
+networks:
+  default:
+    external:
+      name: traefik_default
